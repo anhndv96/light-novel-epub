@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "pixiv-novel-dl": "^1.0.2"
+  }
+}
