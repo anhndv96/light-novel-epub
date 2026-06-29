@@ -167,11 +167,11 @@ def main():
     translated_filename = translate_filename(orig_filename)
     
     if args.index:
-        # Thêm số 0 ở đầu nếu là số (01, 02...)
+        # Thêm số 0 ở đầu nếu là số (thành 3 chữ số: 001, 002...)
         try:
-            idx_str = str(int(args.index)).zfill(2)
+            idx_str = str(int(args.index)).zfill(3)
         except ValueError:
-            idx_str = str(args.index)
+            idx_str = str(args.index).zfill(3)
         translated_filename = f"{idx_str} - {translated_filename}"
         
     output_path = os.path.join(os.path.dirname(input_path), translated_filename)
