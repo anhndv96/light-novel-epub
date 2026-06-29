@@ -81,16 +81,28 @@ def translate_text(text, context_history=""):
     translated = call_local_llm(prompt, system_prompt)
     
     # Kiểm tra xem bản dịch có còn chứa chữ Hán không (Range: \u4e00-\u9fff)
-    if translated and re.search(r'[\u4e00-\u9fff]', translated):
-        print("      [!] Phát hiện chữ Hán sót lại, đang yêu cầu LLM dịch lại...")
-        retry_prompt = (
-            f"Bản dịch trước của bạn cho đoạn văn bản này bị lỗi vì vẫn giữ lại chữ Hán (nửa nạc nửa mỡ):\n{translated}\n\n"
-            f"Hãy DỊCH LẠI đoạn văn bản gốc dưới đây. Yêu cầu chuyển 100% các từ nhạy cảm (như 自慰 thành tự sướng/tự an ủi/thủ dâm, 撒娇 thành làm nũng) sang tiếng Việt.\n"
+    MAX_RETRIES = 2
+    attempt = 1
+    while translated and re.search(r'[\u4e00-\u9fff]', translated) and attempt <= MAX_RETRIES:
+        snippet = text[:50].replace('\n', ' ')
+        print(f"      [!] Phát hiện chữ Hán sót lại (Lần thử {attempt}/{MAX_RETRIES}). Trích đoạn: '{snippet}...' - Đang yêu cầu dịch lại...")
+        
+        retry_prompt = ""
+        if context_history:
+            retry_prompt += f"--- NGỮ CẢNH TRƯỚC ĐÓ ---\n{context_history}\n\n"
+        retry_prompt += (
+            f"Bản dịch trước bị lỗi vì vẫn giữ lại chữ Hán. "
+            f"Hãy DỊCH LẠI đoạn văn bản gốc dưới đây sang tiếng Việt 100%.\n"
             f"--- VĂN BẢN CẦN DỊCH ---\n{text}"
         )
+        
         translated_retry = call_local_llm(retry_prompt, system_prompt)
         if translated_retry:
             translated = translated_retry
+        attempt += 1
+
+    if translated and re.search(r'[\u4e00-\u9fff]', translated):
+        print(f"      [!] Model vẫn cứng đầu giữ chữ Hán sau {MAX_RETRIES} lần thử, chấp nhận bản dịch.")
 
     return translated if translated else text
 
@@ -207,7 +219,7 @@ def main():
     MAX_WORKERS = 4 # Số luồng chạy song song
     BATCH_SIZE = 15 # Số dòng gom trong 1 batch
 
-    def translate_batch_worker(batch_nodes, context_text=""):
+    def translate_batch_worker(batch_nodes, context_text="", batch_idx=0):
         if not batch_nodes:
             return []
         
@@ -231,16 +243,28 @@ def main():
         
         translated = call_local_llm(prompt, system_prompt)
         
-        if translated and re.search(r'[\u4e00-\u9fff]', translated):
-            print("      [!] Batch chứa chữ Hán sót lại, đang yêu cầu LLM dịch lại...")
-            retry_prompt = (
-                f"Bản dịch trước của bạn bị lỗi vì vẫn giữ lại chữ Hán (nửa nạc nửa mỡ):\n{translated}\n\n"
-                f"Hãy DỊCH LẠI toàn bộ các dòng dưới đây. Yêu cầu chuyển 100% các từ (như 自慰 thành tự sướng/tự an ủi/thủ dâm) sang tiếng Việt.\n"
+        MAX_RETRIES = 2
+        attempt = 1
+        while translated and re.search(r'[\u4e00-\u9fff]', translated) and attempt <= MAX_RETRIES:
+            snippet = text_to_translate[:50].replace('\n', ' ')
+            print(f"      [!] Batch {batch_idx + 1} chứa chữ Hán sót lại (Lần thử {attempt}/{MAX_RETRIES}). Trích đoạn: '{snippet}...' - Đang yêu cầu dịch lại...")
+            
+            retry_prompt = ""
+            if context_text:
+                retry_prompt += f"--- NGỮ CẢNH TRƯỚC ĐÓ ---\n{context_text}\n\n"
+            retry_prompt += (
+                f"Bản dịch trước bị lỗi vì vẫn giữ lại chữ Hán. "
+                f"Hãy DỊCH LẠI toàn bộ các dòng dưới đây sang tiếng Việt 100%.\n"
                 f"--- VĂN BẢN CẦN DỊCH ---\n{text_to_translate}"
             )
+            
             translated_retry = call_local_llm(retry_prompt, system_prompt)
             if translated_retry:
                 translated = translated_retry
+            attempt += 1
+            
+        if translated and re.search(r'[\u4e00-\u9fff]', translated):
+            print(f"      [!] Batch {batch_idx + 1}: Model vẫn cứng đầu giữ chữ Hán sau {MAX_RETRIES} lần thử, chấp nhận bản dịch.")
                 
         result_lines = []
         
@@ -291,7 +315,7 @@ def main():
         # Xử lý đa luồng
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             # Map futures để giữ nguyên thứ tự
-            futures = [executor.submit(translate_batch_worker, batch, contexts[i]) for i, batch in enumerate(batches)]
+            futures = [executor.submit(translate_batch_worker, batch, contexts[i], i) for i, batch in enumerate(batches)]
             for future in futures:
                 batch_results.append(future.result())
         
